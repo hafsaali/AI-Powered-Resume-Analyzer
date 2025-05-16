@@ -12,7 +12,7 @@ def match_resume_to_jd(resume_data, job_description: str):
     # Scoring boost by experience and skill match
     experience = resume_data.get("years_experience", 0)
     skills = set(resume_data.get("skills", []))
-    jd_keywords = set(re.findall(r"(?i)python|java|sql|aws|docker|ml|ai|flask|fastapi", job_description))
+    jd_keywords = set(re.findall(r"\b\w+\b", job_description.lower()))
     skill_match = len(skills.intersection(jd_keywords)) / (len(jd_keywords) + 1e-5)
 
     final_score = (similarity * 0.6 + min(experience / 10, 1.0) * 0.2 + skill_match * 0.2) * 100

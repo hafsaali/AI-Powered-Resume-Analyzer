@@ -1,4 +1,7 @@
-from src.resume_analyzer.utils.pdf_utils import read_pdf, read_docx
+from src.resume_analyzer.utils.pdf_utils import read_pdf, convert_to_pdf
+from data.skills_db import DOMAIN_SKILLS, TOOLS, SOFT_SKILLS
+import tempfile
+import os
 from datetime import datetime
 import re
 
@@ -37,17 +40,69 @@ def extract_years_experience(text):
     return round(total_months / 12.0, 1) if total_months else 0
 
 
+def extract_skills(text, domains=None):
+    text = text.lower()
+    skills_found = set()
+
+    # Search domain-specific skills
+    search_domains = domains if domains else DOMAIN_SKILLS.keys()
+    for domain in search_domains:
+        for skill in DOMAIN_SKILLS[domain]:
+            if re.search(rf"\b{re.escape(skill)}\b", text):
+                skills_found.add((skill, domain))  # Store skill with domain
+
+    # Search soft skills
+    for skill in SOFT_SKILLS:
+        if re.search(rf"\b{re.escape(skill)}\b", text):
+            skills_found.add((skill, "soft_skill"))
+
+    # Search tools
+    for category, tools in TOOLS.items():
+        for tool in tools:
+            if re.search(rf"\b{re.escape(tool)}\b", text):
+                skills_found.add((tool, f"tool_{category}"))
+
+    return list(skills_found)
+
 
 def parse_resume(filename: str, content: bytes):
-    text = read_pdf(content) if filename.endswith(".pdf") else read_docx(content)
-    email = extract_email(text)
-    phone = extract_phone(text)
-    experience_years = extract_years_experience(text)
-    skills = re.findall(r"(?i)(python|java|sql|aws|docker|kubernetes|ml|ai|flask|fastapi)", text)
-    return {
-        "email": email,
-        "phone": phone,
-        "skills": list(set([s.lower() for s in skills])),
-        "years_experience": experience_years,
-        "raw_text": text[:1000]  # Preview
-    }
+    # Initialize variables to avoid UnboundLocalError
+    temp_doc_path = None
+    pdf_path = None
+
+    try:
+        if filename.lower().endswith(".pdf"):
+            text = read_pdf(content)
+        elif filename.lower().endswith((".docx", ".doc")):
+            # Create temp file
+            with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as temp_doc:
+                temp_doc.write(content)
+                temp_doc_path = temp_doc.name
+
+            # Convert to PDF
+            pdf_path = convert_to_pdf(temp_doc_path)  # This must return the PDF path
+
+            # Read the converted PDF
+            with open(pdf_path, "rb") as pdf_file:
+                text = read_pdf(pdf_file.read())
+        else:
+            raise ValueError(f"Unsupported file format: {filename}")
+
+        # Process extracted text
+        return {
+            "email": extract_email(text),
+            "phone": extract_phone(text),
+            "skills": extract_skills(text),
+            "years_experience": extract_years_experience(text),
+            "raw_text": text[:1000]
+        }
+
+    except Exception as e:
+        raise ValueError(f"Resume parsing failed: {str(e)}")
+
+    finally:
+        # Cleanup in reverse order of creation
+        if pdf_path and os.path.exists(pdf_path):
+            os.unlink(pdf_path)
+        if temp_doc_path and os.path.exists(temp_doc_path):
+            os.unlink(temp_doc_path)
